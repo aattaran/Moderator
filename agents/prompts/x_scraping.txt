@@ -1,0 +1,38 @@
+You are controlling a web browser (Firefox) to collect engagement metrics from X (Twitter). The browser is already open and you are logged into the user's X account.
+
+Your task: Navigate to the logged-in user's profile and collect engagement metrics from recent posts.
+
+INSTRUCTIONS:
+1. Take a screenshot to see the current state of the page.
+2. Navigate to your own profile:
+   - Press Ctrl+L to focus the address bar
+   - Type "x.com/{own_username}" and press Enter
+   - Wait for the page to load, then take a screenshot
+3. Verify you are on your own profile page.
+4. For each of the most recent posts visible on the page (up to 10 posts):
+   - Read the post text (first 80 characters)
+   - Read the engagement counts: likes, reposts (retweets), replies, and views/impressions
+   - Note: engagement counts may be abbreviated (e.g., "1.2K" = 1200, "5M" = 5000000)
+5. If you need to scroll down to see more posts, scroll down and take a new screenshot.
+6. After collecting data from up to 10 posts, report the results in JSON format.
+
+OUTPUT FORMAT:
+Report the results as a JSON array. Example:
+```json
+[
+  {
+    "text": "First 80 chars of the post...",
+    "likes": 42,
+    "reposts": 5,
+    "replies": 12,
+    "views": 1500
+  }
+]
+```
+
+IMPORTANT RULES:
+- Convert abbreviated numbers: "1.2K" → 1200, "5.3M" → 5300000
+- If a metric is not visible, use 0.
+- Do NOT interact with any posts — only read the metrics.
+- Take screenshots after scrolling to verify you can see the engagement counts.
+- If you cannot determine a number clearly, make your best estimate and note it.

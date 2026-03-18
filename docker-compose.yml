@@ -1,0 +1,18 @@
+version: "3.8"
+services:
+  moderator:
+    build: .
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - PLATFORM=${PLATFORM:-x}
+      - MODEL=${MODEL:-claude-opus-4-6}
+      - DRY_RUN=${DRY_RUN:-false}
+      - REQUIRE_APPROVAL=${REQUIRE_APPROVAL:-false}
+      - ENABLE_VNC=${ENABLE_VNC:-false}
+    volumes:
+      - ./browser-profile:/home/computeruse/.mozilla/firefox/moderator-profile
+      - ./data:/app/data
+    ports:
+      - "5900:5900"   # VNC for debugging (only active if ENABLE_VNC=true)
+    stdin_open: true   # Needed for REQUIRE_APPROVAL mode
+    tty: true
