@@ -561,6 +561,64 @@ Add X API v2 integration for monitoring + DMs, keep Computer Use for posting:
 
 ---
 
+## Part 7: Growth Strategy Beyond Freebies (70/30 Rule)
+
+The freebie funnel should be embedded within a broader content strategy:
+
+### The 70/30 Reply Strategy
+- **70% of your time**: Reply on large accounts in your niche (AI, tech, automation)
+- **30% of your time**: Post original content (insights, threads, freebie CTAs)
+- This is the proven formula for AI accounts growing on X in 2025-2026
+
+### Content Mix (Weekly)
+- **Mon/Wed/Fri**: Value posts (insights, hot takes, lessons learned)
+- **Tue/Thu**: Engagement replies on 10-15 large accounts (using existing `engage()`)
+- **1x per week**: Freebie CTA post (rotate between Tier 1/2/3 assets)
+- **1x per week**: Thread (deep-dive on a topic, freebie CTA at the end)
+
+### Competitor Benchmarks
+| Account | Strategy | Result |
+|---------|----------|--------|
+| The Rundown AI | Free AI news + tool lists | 567K followers |
+| Allie K. Miller | Free AI insights + polls | 1.5M+ cross-platform |
+| TweetX | Free Chrome extension (product = freebie) | Growth engine for paid |
+| n8n | 6,125+ free workflow templates | Open-source flywheel |
+
+### Freebie Format Performance (Conversion Ranking)
+1. **Free interactive tool** (Chrome extension, calculator) - 70% higher conversion than static
+2. **Templates & prompt packs** - Very high, plug-and-play appeal
+3. **Checklists & cheat sheets** - High, scannable and actionable
+4. **Mini video courses** - Moderate opt-in but highest lead quality
+5. **Ebooks / PDF guides** - Declining; audiences prefer shorter formats
+
+### High-Value, Low-Effort Freebie Creation Tips
+- **Bundle strategy**: Collaborate with 3-5 creators for a "mega resource bundle"
+- **Content vault**: Compile existing best content into a single downloadable vault
+- **Batch creation**: Create 30 prompts in one sitting, package as "30-Day AI Prompt Pack"
+- **Specificity wins**: "7 AI Prompts for SaaS Founders" > "100 Generic AI Prompts"
+- **Quantify value**: "This automation saves 10 hours/week" or "Normally $97, free for 48h"
+
+### DM Limits by Account Age
+| Account Age | Safe DM Volume |
+|-------------|---------------|
+| < 90 days | 50-100/day |
+| 3+ months | 300-500/day |
+| High reputation | Up to 1,000/day |
+| **Recommended safe zone** | **350-400/day** |
+
+### Additional Auto-DM Tools Discovered
+| Tool | Key Feature | Cost |
+|------|------------|------|
+| DM Dad | Auto-DM commenters (even on OTHER people's viral posts) | 50 free DMs/day |
+| xAutoDM | AI-personalized DM campaigns, 5x higher response vs cold email | Paid |
+| Hivoe | Giveaway-focused auto-DM with Notion/Sheets integration | Paid |
+| Meet Alfred | Multi-channel (X + LinkedIn + email), up to 1,000 DMs/day | Paid |
+
+### X Premium is Nearly Mandatory
+Unverified accounts need ~10x more engagement for the same reach. X Premium ($8/mo) is a prerequisite for any serious growth campaign.
+
+---
+
 ## Summary
 
 | Component | Status | Priority |
