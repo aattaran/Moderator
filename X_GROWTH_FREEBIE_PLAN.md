@@ -120,10 +120,44 @@ Want the starter code?
 Comment "CODE" + follow + like this post.
 ```
 
+### Important: Avoid Engagement Bait Penalties
+
+X has been actively penalizing engagement bait since 2024. Posts with hundreds of identical single-word replies ("YES", "FREE") can see reach reduced by **50-90%**. To counter this:
+- Use trigger phrases that encourage varied responses (e.g., "Tell me what you're building + comment AGENT")
+- The post format should invite genuine conversation alongside the trigger keyword
+- Avoid pure single-word triggers; pair them with a question
+
 ### Optimal Posting Times
 - **Best**: Tue-Thu, 8-10 AM EST or 12-1 PM EST
 - **Good**: Mon/Fri same times
 - **Avoid**: Weekends (lower reach for tech/AI content)
+
+### Critical: DM to Landing Page (Not Direct Freebie)
+
+The DM should link to a **landing page with email capture**, NOT deliver the freebie directly. This is the #1 difference between accounts that grow and accounts that convert.
+
+**Recommended stack:**
+- **Auto-DM**: TweetHunter ($36-49/mo) or Hypefury ($24/mo)
+- **Email capture**: Kit/ConvertKit (free up to 10K subscribers)
+- **Digital product delivery**: Gumroad (free, handles file hosting + email tagging)
+
+**Full funnel math (per 100K impressions):**
+| Stage | Count | Conversion |
+|-------|-------|-----------|
+| Impressions | 100,000 | - |
+| Comments | 2,000 | 2% |
+| DMs opened | 1,200 | 60% |
+| Link clicks | 180 | 15% |
+| Email signups | 72 | 40% |
+| Paying customers | 7 | 10% of email |
+
+**Post-DM nurture sequence (5 emails over 14 days):**
+1. **Immediate**: Deliver freebie + set expectations (50% open rate)
+2. **Day 2-3**: Related bonus value content
+3. **Day 5-7**: Your story + credibility building
+4. **Day 8-10**: Case studies + testimonials
+5. **Day 12-14**: Present paid product with clear CTA
+6. **After**: Non-converters go to monthly nurture list with behavior-based re-engagement
 
 ---
 
