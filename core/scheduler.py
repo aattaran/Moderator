@@ -206,13 +206,16 @@ class TaskScheduler:
             id="reddit_karma", name="Reddit karma tracking",
         )
 
-        # Campaign reply monitor every 30 minutes
-        self.scheduler.add_job(
-            self._safe_run("campaign_monitor_callback", "campaign_monitor"),
-            IntervalTrigger(minutes=30),
-            id="campaign_monitor", name="Campaign reply monitor",
-            jitter=300,
-        )
+        # Campaign reply monitor every 30 minutes — X-specific (freebie campaigns
+        # run on X), so gate it on x_enabled too. This was the leak that kept
+        # auto-replying on X even after the other X jobs were gated.
+        if x_enabled:
+            self.scheduler.add_job(
+                self._safe_run("campaign_monitor_callback", "campaign_monitor"),
+                IntervalTrigger(minutes=30),
+                id="campaign_monitor", name="Campaign reply monitor",
+                jitter=300,
+            )
 
     def start(self):
         self.scheduler.start()
