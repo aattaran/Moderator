@@ -143,6 +143,91 @@ class TikTokActions:
             logger.warning("TikTok: login check failed: %s", e)
             return False
 
+    async def _dismiss_overlays(self) -> None:
+        """Strip onboarding coach-marks that swallow clicks.
+
+        TikTok's react-joyride overlay covers the composer and intercepts pointer
+        events, which can silently block the Post button. It carries no state we
+        need, so removing the nodes is safe.
+        """
+        try:
+            removed = await self.page.evaluate(
+                """(sel) => {
+                    const nodes = document.querySelectorAll(sel);
+                    nodes.forEach(n => n.remove());
+                    return nodes.length;
+                }""",
+                S.JOYRIDE_NODES,
+            )
+            if removed:
+                logger.info("TikTok: removed %d onboarding overlay node(s)", removed)
+        except Exception as e:
+            logger.warning("TikTok: could not clear overlays: %s", e)
+
+    async def _visibility_control(self):
+        """Return the audience Select next to the 'Who can see this post' label."""
+        handle = await self.page.evaluate_handle(
+            """([label, trigger]) => {
+                const leaves = [...document.querySelectorAll('*')].filter(
+                    el => el.children.length === 0 && el.textContent.trim() === label);
+                if (!leaves.length) return null;
+                let node = leaves[0];
+                for (let i = 0; i < 6 && node.parentElement; i++) {
+                    node = node.parentElement;
+                    const t = node.querySelector(trigger);
+                    if (t) return t;
+                }
+                return null;
+            }""",
+            [S.VISIBILITY_LABEL, S.SELECT_TRIGGER],
+        )
+        return handle.as_element()
+
+    async def _ensure_public(self) -> bool:
+        """Guarantee the post is visible to Everyone, or refuse to publish.
+
+        The audience is never set explicitly by the composer — it reuses whatever was
+        last selected on the account. Posting to "Friends" or "Only you" would look
+        identical in our logs, so this reads the control and corrects it, and returns
+        False rather than publishing something non-public.
+        """
+        try:
+            control = await self._visibility_control()
+            if control is None:
+                logger.error("TikTok: audience control not found — refusing to post")
+                return False
+
+            current = (await control.inner_text()).strip()
+            if current == S.VISIBILITY_PUBLIC:
+                logger.info("TikTok: audience is %s", current)
+                return True
+
+            logger.warning("TikTok: audience was %r, setting to %s", current, S.VISIBILITY_PUBLIC)
+            await control.click()
+            await self._human_delay(1000, 2000)
+
+            for opt in await self.page.query_selector_all(S.SELECT_OPTION):
+                try:
+                    if (await opt.inner_text()).strip() == S.VISIBILITY_PUBLIC and await opt.is_visible():
+                        await opt.click()
+                        await self._human_delay(1000, 2000)
+                        break
+                except Exception as e:
+                    logger.warning("TikTok: could not read audience option: %s", e)
+                    continue
+
+            control = await self._visibility_control()
+            confirmed = (await control.inner_text()).strip() if control else ""
+            if confirmed != S.VISIBILITY_PUBLIC:
+                logger.error("TikTok: audience still %r — refusing to post", confirmed)
+                return False
+
+            logger.info("TikTok: audience corrected to %s", confirmed)
+            return True
+        except Exception as e:
+            logger.error("TikTok: audience check failed (%s) — refusing to post", e)
+            return False
+
     async def _wait_for_upload_complete(self, timeout_s: int = UPLOAD_TIMEOUT_S) -> bool:
         """Block until TikTok reports the file uploaded and the Post button is live.
 
@@ -273,6 +358,15 @@ class TikTokActions:
             else:
                 logger.warning("TikTok: could not find caption input")
 
+            # Coach-mark overlays intercept clicks; clear them before the audience
+            # control and the Post button are touched.
+            await self._dismiss_overlays()
+
+            # Never publish without confirming the post is visible to Everyone.
+            if not await self._ensure_public():
+                await self.page.screenshot(path="data/tiktok_privacy_debug.png")
+                return False
+
             # Click Post. Only the stable data-e2e hook, plus an EXACT-text fallback —
             # substring matching ('button:has-text("Post")') resolves to the sidebar nav
             # button first and silently discards the upload.
@@ -301,10 +395,16 @@ class TikTokActions:
 
             # A misclick that navigates away raises the exit-confirm modal. Cancel it so
             # we stay on the composer and report failure instead of losing the upload.
+            #
+            # Gate on the modal's own TEXT. Matching a bare visible "Cancel" button is
+            # not specific enough: TikTok shows its own dialog after a SUCCESSFUL Post
+            # click that also carries a Cancel, and cancelling that aborts the publish.
             try:
-                cancel = await self.page.query_selector(S.EXIT_CONFIRM_CANCEL)
-                if cancel and await cancel.is_visible():
-                    await cancel.click()
+                body = " ".join((await self.page.inner_text("body")).split())
+                if S.EXIT_CONFIRM_TEXT in body:
+                    cancel = await self.page.query_selector(S.EXIT_CONFIRM_CANCEL)
+                    if cancel and await cancel.is_visible():
+                        await cancel.click()
                     logger.error("TikTok: Post click hit a navigation control — not published")
                     await self.page.screenshot(path="data/tiktok_post_debug.png")
                     return False

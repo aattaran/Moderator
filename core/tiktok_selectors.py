@@ -18,6 +18,18 @@ DISCARD_BUTTON = '[data-e2e="discard_post_button"]'
 EXIT_CONFIRM_TEXT = "Are you sure you want to exit"
 EXIT_CONFIRM_CANCEL = 'button:has-text("Cancel")'
 
+# Audience control. TikTok remembers the LAST USED value per account, so a single
+# manual "Friends"/"Only you" post from the phone would silently make every later
+# automated post non-public. Never rely on the default — read it and set it.
+VISIBILITY_LABEL = "Who can see this post"
+VISIBILITY_PUBLIC = "Everyone"
+SELECT_TRIGGER = '[class*="Select__trigger"]'
+SELECT_OPTION = '[role="option"], [class*="Select__option"], li'
+
+# Onboarding coach-marks render an overlay that swallows pointer events, which can
+# block the Post click. Removed from the DOM before interacting with the composer.
+JOYRIDE_NODES = '#react-joyride-portal, .react-joyride__overlay, .react-joyride__spotlight'
+
 # Upload page elements
 UPLOAD_BUTTON = '[data-testid="upload-button"], button:has-text("Select video")'
 UPLOAD_SUCCESS = '[data-testid="upload-success"]'
