@@ -1,4 +1,4 @@
-"""Engagement strategy — decides how and where to comment for maximum engagement."""
+"""Engagement strategy — decides how and where to comment, using Gemini for text generation."""
 
 import logging
 
@@ -6,7 +6,6 @@ from strategies.weight_manager import WeightManager
 
 logger = logging.getLogger(__name__)
 
-# Comment style templates — these guide Claude in generating the actual comment
 COMMENT_STYLE_PROMPTS = {
     "agree_and_extend": (
         "Write a reply that agrees with the post's main point and extends it "
@@ -36,18 +35,21 @@ COMMENT_STYLE_PROMPTS = {
 }
 
 
+def _get_gemini_client():
+    from google import genai
+    from config import get_settings
+    settings = get_settings()
+    return genai.Client(api_key=settings.GEMINI_API_KEY)
+
+
 class EngagementStrategy:
-    """Selects comment style and generates engagement prompts."""
+    """Selects comment style and generates engagement text via Gemini."""
 
     def __init__(self, weight_manager: WeightManager):
         self.weight_manager = weight_manager
 
     async def generate_comment_prompt(self) -> tuple[str, str, str]:
-        """Generate a comment creation prompt.
-
-        Returns:
-            Tuple of (comment_prompt, selected_style, selected_topic)
-        """
+        """Generate a comment creation prompt."""
         style = await self.weight_manager.select("comment_style")
         topic = await self.weight_manager.select("topic")
 
@@ -58,21 +60,15 @@ class EngagementStrategy:
         return prompt, style, topic
 
     async def generate_comment_text(self, style: str, topic: str, post_context: str = "") -> str:
-        """Generate the actual comment text via Claude.
+        """Generate comment text via Gemini. Skips political content."""
+        from strategies.targeting_strategy import is_political
 
-        Args:
-            style: Comment style to use
-            topic: Topic category
-            post_context: Optional context about the post being replied to
+        # Skip political posts entirely
+        if post_context and is_political(post_context):
+            logger.info("Skipping political post — not engaging")
+            return ""
 
-        Returns:
-            The generated comment text
-        """
-        import anthropic
-        from config import get_settings
-
-        settings = get_settings()
-        client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+        client = _get_gemini_client()
 
         template = COMMENT_STYLE_PROMPTS.get(style, COMMENT_STYLE_PROMPTS["agree_and_extend"])
         prompt = template.replace("{topic}", topic)
@@ -80,20 +76,62 @@ class EngagementStrategy:
         if post_context:
             prompt = f"Context — you are replying to this post: \"{post_context}\"\n\n{prompt}"
 
-        response = client.messages.create(
-            model=settings.MODEL,
-            max_tokens=300,
-            messages=[{"role": "user", "content": prompt}],
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
         )
 
         text = ""
-        for block in response.content:
-            if block.type == "text":
-                text = block.text.strip()
+        if not response.candidates or not response.candidates[0].content.parts:
+            raise ValueError("Gemini returned empty response (safety filter or quota?)")
+        for part in response.candidates[0].content.parts:
+            if part.text:
+                text = part.text.strip()
                 break
+
+        if text.startswith('"') and text.endswith('"'):
+            text = text[1:-1]
 
         if len(text) > 280:
             text = text[:277] + "..."
 
         logger.info("Generated comment (%d chars): %s", len(text), text[:100])
+        return text
+
+    async def generate_mention_reply(self, mention_text: str) -> str:
+        """Generate a reply to a mention using Gemini. Skips political mentions."""
+        from strategies.targeting_strategy import is_political
+
+        if is_political(mention_text):
+            logger.info("Skipping political mention — not replying")
+            return ""
+
+        client = _get_gemini_client()
+
+        prompt = (
+            f"Someone mentioned you on X (Twitter) with this message:\n"
+            f"\"{mention_text}\"\n\n"
+            f"Write a friendly, authentic reply. Be conversational, not robotic. "
+            f"Under 280 characters. No hashtags."
+        )
+
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+        )
+
+        text = ""
+        if not response.candidates or not response.candidates[0].content.parts:
+            raise ValueError("Gemini returned empty response (safety filter or quota?)")
+        for part in response.candidates[0].content.parts:
+            if part.text:
+                text = part.text.strip()
+                break
+
+        if text.startswith('"') and text.endswith('"'):
+            text = text[1:-1]
+
+        if len(text) > 280:
+            text = text[:277] + "..."
+
         return text

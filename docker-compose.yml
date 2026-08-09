@@ -1,18 +1,33 @@
-version: "3.8"
 services:
   moderator:
     build: .
+    shm_size: '2gb'
     environment:
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - FAL_API_KEY=${FAL_API_KEY}
+      - KIE_API_KEY=${KIE_API_KEY}
+      - ATLASCLOUD_API_KEY=${ATLASCLOUD_API_KEY}
       - PLATFORM=${PLATFORM:-x}
-      - MODEL=${MODEL:-claude-opus-4-6}
       - DRY_RUN=${DRY_RUN:-false}
       - REQUIRE_APPROVAL=${REQUIRE_APPROVAL:-false}
       - ENABLE_VNC=${ENABLE_VNC:-false}
+      - POSTS_PER_DAY=${POSTS_PER_DAY:-8}
+      - ENGAGEMENT_CYCLE_INTERVAL_HOURS=${ENGAGEMENT_CYCLE_INTERVAL_HOURS:-2}
+      - COMMENTS_PER_CYCLE=${COMMENTS_PER_CYCLE:-5}
+      - X_USERNAME=${X_USERNAME}
+      - X_PASSWORD=${X_PASSWORD}
+      - PLATFORMS=${PLATFORMS:-x}
+      - FACEBOOK_GROUP_ID=${FACEBOOK_GROUP_ID:-773954008871273}
+      - FACEBOOK_POSTS_PER_DAY=${FACEBOOK_POSTS_PER_DAY:-3}
+      - DO_SPACES_KEY=${DO_SPACES_KEY}
+      - DO_SPACES_SECRET=${DO_SPACES_SECRET}
+      - PROXY_SERVER=${PROXY_SERVER}
+      - PROXY_USERNAME=${PROXY_USERNAME}
+      - PROXY_PASSWORD=${PROXY_PASSWORD}
+      - IG_USERNAME=${IG_USERNAME}
+      - IG_PASSWORD=${IG_PASSWORD}
+      - IG_SWITCH_TO=${IG_SWITCH_TO:-}
     volumes:
-      - ./browser-profile:/home/computeruse/.mozilla/firefox/moderator-profile
+      - ./browser-profile:/app/browser-profile
       - ./data:/app/data
-    ports:
-      - "5900:5900"   # VNC for debugging (only active if ENABLE_VNC=true)
-    stdin_open: true   # Needed for REQUIRE_APPROVAL mode
-    tty: true
+    restart: unless-stopped

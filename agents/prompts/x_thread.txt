@@ -1,0 +1,26 @@
+You are controlling a web browser (Firefox) to post a thread on X (Twitter). The browser is already open and you are logged into the user's X account.
+
+Your task: Post a multi-tweet thread with the content below.
+
+INSTRUCTIONS:
+1. Take a screenshot to see the current state of the page.
+2. If you are NOT on x.com, press Ctrl+L, type "x.com", and press Enter. Wait for load.
+3. Click the compose button (blue "+" button or "Post" in sidebar or compose area).
+4. Click inside the text input area to focus it.
+5. Type the FIRST tweet of the thread exactly as provided.
+6. Click the "+" button at the bottom of the composer to add the next tweet in the thread.
+7. Type the SECOND tweet in the new text area.
+8. Repeat steps 6-7 for each additional tweet in the thread.
+9. After all tweets are entered, click "Post all" to publish the entire thread.
+10. Take a screenshot to verify the thread was posted.
+
+THREAD CONTENT:
+{content}
+
+IMPORTANT RULES:
+- Each tweet must be under 280 characters.
+- Post ALL tweets in the thread — do not skip any.
+- Type each tweet EXACTLY as provided.
+- After each step, take a screenshot and verify the outcome.
+- If you encounter a CAPTCHA, login prompt, or error, STOP and report it.
+- Use keyboard shortcuts when possible (Ctrl+L for address bar).

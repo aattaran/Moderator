@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UGC UI &mdash; Moderator</title>
+  <script src="https://unpkg.com/htmx.org@2.0.3"></script>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <main>
+    <h1>UGC Video Generator</h1>
+
+    <div class="banner">
+      <strong>SECURITY:</strong> This UI binds to 127.0.0.1 only. No auth. Runs cost real API credits.
+    </div>
+
+    <div id="confirm-alert" style="display:none;background:#1a2e1a;border:2px solid #22c55e;color:#7be7a1;padding:14px 18px;border-radius:6px;margin-bottom:20px;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+      <span><strong>&#9203; Awaiting your confirmation</strong> &mdash; Stage 2 complete. Approve to spend Kling credits and generate the video.</span>
+      <div style="display:flex;gap:10px;flex-shrink:0;">
+        <button type="button" id="alert-confirm-btn" style="background:#22c55e;color:#0a0d14;border:none;padding:9px 18px;border-radius:6px;font-weight:700;cursor:pointer;">&#10003; Confirm</button>
+        <button type="button" id="alert-abort-btn" style="background:transparent;color:#ff6b6b;border:1px solid #ff6b6b;padding:9px 18px;border-radius:6px;font-weight:700;cursor:pointer;">&#10005; Abort</button>
+      </div>
+    </div>
+
+    <form id="run-form" autocomplete="off">
+
+      <!-- Field 1: Product -->
+      <div class="field">
+        <label for="product">Product</label>
+        <select id="product" name="product"></select>
+      </div>
+
+      <!-- Field 2: Topic (hidden when custom product selected) -->
+      <div class="field" id="topic-field">
+        <label for="topic">Topic</label>
+        <select id="topic" name="topic"></select>
+      </div>
+
+      <!-- Custom product description (shown only when custom product selected) -->
+      <div class="field" id="custom-product-field" hidden>
+        <label for="product_description">Product description <span class="req">*</span></label>
+        <textarea
+          id="product_description"
+          name="product_description"
+          rows="4"
+          maxlength="2000"
+          placeholder="Describe your product: name, key ingredient(s), main benefit, problem it solves, a key fact, and what to say in the video."
+        ></textarea>
+        <p class="hint">Put your product images in <code>data/product_images/custom/</code>. This description drives the Gemini script — be specific.</p>
+      </div>
+
+      <!-- Field 3: Platform -->
+      <div class="field">
+        <label for="platform">Platform</label>
+        <select id="platform" name="platform"></select>
+      </div>
+
+      <!-- Field 4: Actor (REQUIRED) -->
+      <div class="field">
+        <label>Actor <span class="req">*</span></label>
+        <div class="actor-grid" id="actor-grid">
+          <div class="loading">Loading actors&hellip;</div>
+        </div>
+        <input type="hidden" name="actor_id" id="actor_id" value="">
+        <p class="hint">Click an actor card to select. Submission is blocked until an actor is picked.</p>
+      </div>
+
+      <!-- Field 5: Actor gender -->
+      <div class="field">
+        <label>Actor gender</label>
+        <div class="radio-row">
+          <label><input type="radio" name="actor_gender" value="female" checked> Female</label>
+          <label><input type="radio" name="actor_gender" value="male"> Male</label>
+        </div>
+      </div>
+
+      <!-- Field 6: Scene -->
+      <div class="field">
+        <label>Scene</label>
+        <div class="radio-row">
+          <label><input type="radio" name="scene_kind" value="image" checked> Image</label>
+          <label><input type="radio" name="scene_kind" value="description"> Description</label>
+          <label><input type="radio" name="scene_kind" value="none"> None</label>
+        </div>
+
+        <div id="scene-panel-image" class="scene-panel">
+          <div class="scene-grid" id="scene-grid">
+            <div class="loading">Loading scenes&hellip;</div>
+          </div>
+          <input type="hidden" name="scene_id" id="scene_id" value="">
+        </div>
+
+        <div id="scene-panel-description" class="scene-panel" hidden>
+          <textarea name="scene_description" id="scene_description"
+                    maxlength="500" rows="3"
+                    placeholder="e.g. modern kitchen counter, morning light"></textarea>
+          <p class="hint">Max 500 characters.</p>
+        </div>
+
+        <div id="scene-panel-none" class="scene-panel" hidden>
+          <p class="hint">No scene reference will be passed to Kling.</p>
+        </div>
+      </div>
+
+      <!-- Field 7: Number of clips -->
+      <div class="field">
+        <label for="clip_count">Number of clips</label>
+        <input type="number" id="clip_count" name="clip_count" value="3" min="1" max="12" step="1">
+        <p class="hint">1–12 clips. Each clip reuses the same start frame.</p>
+      </div>
+
+      <!-- Field 8: Seconds per clip -->
+      <div class="field">
+        <label for="clip_duration">Seconds per clip</label>
+        <input type="number" id="clip_duration" name="clip_duration" value="8" min="1" max="30" step="1">
+        <p class="hint">1–30s. Kling natively supports 5s and 10s; other values are passed as-is.</p>
+      </div>
+
+      <!-- Field 9: Aspect ratio -->
+      <div class="field">
+        <label>Aspect ratio</label>
+        <div class="radio-row" id="aspect-row">
+          <label><input type="radio" name="aspect" value="9:16" checked> 9:16</label>
+          <label><input type="radio" name="aspect" value="16:9"> 16:9</label>
+          <label><input type="radio" name="aspect" value="1:1"> 1:1</label>
+        </div>
+      </div>
+
+      <!-- Field 10: Resolution -->
+      <div class="field">
+        <label>Resolution</label>
+        <div class="radio-row" id="resolution-row">
+          <label><input type="radio" name="resolution" value="720p"> 720p</label>
+          <label><input type="radio" name="resolution" value="1080p" checked> 1080p</label>
+        </div>
+        <p class="hint">1080p uses Kling V3 Pro tier. 720p uses std.</p>
+      </div>
+
+      <!-- Field 11: Video style -->
+      <div class="field">
+        <label for="style_key">Video style</label>
+        <select id="style_key" name="style_key"></select>
+      </div>
+
+      <!-- Field 12: Concept -->
+      <div class="field">
+        <label for="concept_key">Concept</label>
+        <select id="concept_key" name="concept_key"></select>
+      </div>
+
+      <!-- Field 13: Visual hook -->
+      <div class="field">
+        <label for="visual_hook_key">Visual hook</label>
+        <select id="visual_hook_key" name="visual_hook_key"></select>
+      </div>
+
+      <!-- Field 13b: Extra prompt (free-text instructions appended to Gemini angle prompt) -->
+      <div class="field field--full">
+        <label for="extra_prompt">Extra instructions to the AI (optional)</label>
+        <textarea
+          id="extra_prompt"
+          name="extra_prompt"
+          rows="3"
+          maxlength="2000"
+          placeholder="e.g. avoid hand-to-face gestures. Mention the 5x absorption fact in clip 2. Use a cooler color palette."
+        ></textarea>
+        <small>Appended to the Gemini angle prompt. 2000 char max.</small>
+      </div>
+
+      <!-- Field 14: Dry run -->
+      <div class="field">
+        <label class="checkbox-line">
+          <input type="checkbox" name="dry_run" id="dry_run">
+          Dry run (stop after Stage 2, never call Kling)
+        </label>
+      </div>
+
+      <!-- Field 15: Preview gate -->
+      <div class="field">
+        <label class="checkbox-line">
+          <input type="checkbox" name="preview_gate" id="preview_gate" checked>
+          Preview angle &amp; frame before running Kling (lets you abort)
+        </label>
+      </div>
+
+      <details class="advanced">
+        <summary>Advanced</summary>
+
+        <div class="field">
+          <label for="kling_model">Kling model</label>
+          <select id="kling_model" name="kling_model"></select>
+        </div>
+
+        <div class="field">
+          <label for="cfg_scale">cfg_scale: <span id="cfg_scale_val">0.70</span></label>
+          <input type="range" id="cfg_scale" name="cfg_scale"
+                 min="0" max="1" step="0.05" value="0.7">
+        </div>
+
+        <div class="field">
+          <label>Sound</label>
+          <div class="radio-row">
+            <label><input type="radio" name="sound" value="on" checked> On</label>
+            <label><input type="radio" name="sound" value="off"> Off</label>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="tts_voice">TTS voice override</label>
+          <input type="text" id="tts_voice" name="tts_voice" placeholder="(blank = default per gender)">
+        </div>
+
+        <div class="field">
+          <label for="pose">Pose</label>
+          <select id="pose" name="pose">
+            <option value="">--</option>
+            <option value="standing">standing</option>
+            <option value="walking">walking</option>
+            <option value="sitting">sitting</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="bottle_closeup">Bottle closeup</label>
+          <select id="bottle_closeup" name="bottle_closeup">
+            <option value="">--</option>
+            <option value="yes">yes</option>
+            <option value="no">no</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label class="checkbox-line">
+            <input type="checkbox" name="multi_shot" id="multi_shot">
+            Multi-shot
+          </label>
+        </div>
+
+        <div class="field">
+          <label class="checkbox-line">
+            <input type="checkbox" name="extend_clips" id="extend_clips">
+            Extend clips
+          </label>
+        </div>
+      </details>
+
+      <div class="footer">
+        <div id="cost-estimate">Est. ~$0.00</div>
+        <div class="button-row">
+          <button type="submit" id="submit-btn" disabled>Generate full video</button>
+          <button type="button" id="reset-btn">Reset</button>
+        </div>
+      </div>
+    </form>
+
+    <section id="history-section">
+      <header class="history-header">
+        <h2>Run History</h2>
+        <button type="button" id="history-refresh" title="Refresh">&#x21bb;</button>
+      </header>
+      <div class="history-filters">
+        <label>Product
+          <select id="filter-product">
+            <option value="">All</option>
+          </select>
+        </label>
+        <label>Status
+          <select id="filter-status">
+            <option value="">All</option>
+            <option value="complete">Complete</option>
+            <option value="failed">Failed</option>
+            <option value="aborted">Aborted</option>
+            <option value="running">Running</option>
+            <option value="awaiting_confirmation">Awaiting confirm</option>
+            <option value="preview_complete">Preview complete</option>
+          </select>
+        </label>
+        <label>Since
+          <select id="filter-since">
+            <option value="">All time</option>
+            <option value="24h">Last 24h</option>
+            <option value="7d">Last 7 days</option>
+            <option value="30d">Last 30 days</option>
+          </select>
+        </label>
+      </div>
+      <div class="history-table-wrap">
+        <table class="history-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Product</th>
+              <th>Style</th>
+              <th>Concept</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="history-rows">
+            <tr><td colspan="6" class="empty">Loading&hellip;</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <div id="video-modal" class="modal" hidden>
+      <div class="modal-backdrop" data-close-modal="video-modal"></div>
+      <div class="modal-body">
+        <header>
+          <h2 id="video-modal-title">Playback</h2>
+          <button type="button" data-close-modal="video-modal" aria-label="Close">&times;</button>
+        </header>
+        <div class="modal-content">
+          <video id="video-modal-player" controls style="max-width:100%;max-height:60vh"></video>
+          <img id="video-modal-frame" alt="Start frame" style="max-width:100%;max-height:60vh;display:none" />
+        </div>
+      </div>
+    </div>
+
+    <div id="status-panel" class="log-panel" hidden>
+      <div class="status-header">
+        <span>Run status</span>
+        <button type="button" id="status-close" class="status-close-btn">Close</button>
+      </div>
+      <div id="status-log" class="status-log"></div>
+      <div id="video-preview" class="video-preview"></div>
+    </div>
+
+    <div id="preview-modal" class="modal" hidden>
+      <div class="modal-backdrop"></div>
+      <div class="modal-body">
+        <header>
+          <h2>Preview &mdash; review before spending Kling credits</h2>
+          <button type="button" id="preview-close" aria-label="Close">&times;</button>
+        </header>
+        <div class="modal-content">
+          <img id="preview-frame" alt="Start frame">
+          <div id="preview-meta">
+            <div><strong>Angle:</strong> <span id="preview-angle"></span></div>
+            <div><strong>Clips:</strong> <span id="preview-clips"></span></div>
+            <div id="preview-cost"></div>
+          </div>
+        </div>
+        <footer>
+          <button type="button" id="preview-abort" class="danger">Abort (no Kling spend)</button>
+          <button type="button" id="preview-confirm" class="primary">Confirm &amp; run Kling</button>
+        </footer>
+      </div>
+    </div>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
