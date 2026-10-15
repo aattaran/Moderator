@@ -1,185 +1,230 @@
-"""X (Twitter) agent — posting, engagement, and metrics scraping via Computer Use."""
+"""X (Twitter) agent — posting, engagement, and metrics scraping via Playwright."""
 
-import json
 import logging
 from datetime import datetime
-from pathlib import Path
 
 from agents.base_agent import BaseAgent, RateLimitError
 from config import Settings
-from core.computer_use import AgentLoop
+from core.playwright_browser import PlaywrightBrowser
+from core.x_actions import XActions
 from storage.database import Database
 from storage.models import AgentRun, Comment, Post
 
 logger = logging.getLogger(__name__)
 
-PROMPTS_DIR = Path(__file__).parent / "prompts"
-
 
 class XAgent(BaseAgent):
-    """X (Twitter) platform agent using Claude Computer Use."""
+    """X (Twitter) platform agent using Playwright browser automation."""
+
+    def __init__(self, browser: PlaywrightBrowser, db: Database, config: Settings):
+        super().__init__(browser, db, config)
+        self.actions = XActions(browser)
 
     def get_platform_name(self) -> str:
         return "x"
 
-    def _load_prompt(self, name: str) -> str:
-        """Load a system prompt template from the prompts directory."""
-        return (PROMPTS_DIR / name).read_text()
-
     async def post_content(self, content: str, style: str, topic: str) -> Post:
-        """Post a tweet on X.
-
-        Args:
-            content: The text to post
-            style: Content style (e.g., "hot_take", "thread")
-            topic: Content topic (e.g., "ai", "tech")
-
-        Returns:
-            The created Post record
-        """
+        """Post a tweet on X."""
         await self.check_rate_limit("post")
         await self.request_approval(content, "post")
 
-        # Log the agent run
         run = AgentRun(agent="x", task_type="post", started_at=datetime.now())
         run_id = await self.db.log_agent_run(run)
 
-        # Create the post record (draft)
-        post = Post(
-            platform="x",
-            content=content,
-            content_style=style,
-            status="draft",
-        )
+        post = Post(platform="x", content=content, content_style=style, topic=topic, status="draft")
         post.id = await self.db.insert_post(post)
 
         try:
-            # Load and fill the posting prompt
-            system_prompt = self._load_prompt("x_posting.txt")
-            task_prompt = system_prompt.replace("{content}", content)
-            system_prompt_base = (
-                "You are an AI assistant helping a user manage their X (Twitter) account. "
-                "You are controlling a web browser via mouse and keyboard actions. "
-                "Follow the instructions precisely and report any issues."
-            )
+            success = await self.actions.compose_and_post(content)
 
-            # Run the agent loop
-            result = await self.agent_loop.run(
-                task=task_prompt,
-                system_prompt=system_prompt_base,
-                max_iterations=20,
-            )
-
-            if result.success:
-                await self.db.update_post_status(post.id, "posted", datetime.now())
+            if success:
+                now = datetime.now()
+                await self.db.update_post_status(post.id, "posted", now)
                 post.status = "posted"
-                post.posted_at = datetime.now()
-                logger.info("Successfully posted tweet (style=%s, topic=%s)", style, topic)
+                post.posted_at = now
+                logger.info("Posted tweet (style=%s, topic=%s)", style, topic)
             else:
                 await self.db.update_post_status(post.id, "failed")
                 post.status = "failed"
-                logger.warning("Post may have failed — agent loop did not complete cleanly")
 
             await self.db.complete_agent_run(
-                run_id,
-                status="success" if result.success else "failed",
-                iterations=result.iterations,
-                api_tokens_used=result.total_input_tokens + result.total_output_tokens,
+                run_id, status="success" if success else "failed", iterations=1,
             )
             return post
 
         except Exception as e:
             await self.db.update_post_status(post.id, "failed")
-            await self.db.complete_agent_run(
-                run_id, status="failed", error_message=str(e)
-            )
+            await self.db.complete_agent_run(run_id, status="failed", error_message=str(e))
             raise
 
-    async def engage(
-        self, target_username: str, comment_text: str, style: str, topic: str
-    ) -> Comment:
-        """Reply to a post on a target account's profile.
+    async def post_with_image(self, content: str, image_path: str, style: str, topic: str) -> Post:
+        """Post a tweet with an attached image."""
+        await self.check_rate_limit("post")
 
-        Args:
-            target_username: X username to engage with (without @)
-            comment_text: The reply text
-            style: Comment style (e.g., "agree_and_extend", "question")
-            topic: Topic category (e.g., "ai", "tech")
+        run = AgentRun(agent="x", task_type="post_image", started_at=datetime.now())
+        run_id = await self.db.log_agent_run(run)
 
-        Returns:
-            The created Comment record
-        """
+        post = Post(platform="x", content=content, content_style=style, topic=topic, status="draft")
+        post.id = await self.db.insert_post(post)
+
+        try:
+            success = await self.actions.compose_and_post_with_image(content, image_path)
+
+            if success:
+                await self.db.update_post_status(post.id, "posted", datetime.now())
+                post.status = "posted"
+                logger.info("Posted tweet with image (style=%s, topic=%s)", style, topic)
+            else:
+                await self.db.update_post_status(post.id, "failed")
+                post.status = "failed"
+
+            await self.db.complete_agent_run(
+                run_id, status="success" if success else "failed", iterations=1,
+            )
+            return post
+
+        except Exception as e:
+            await self.db.update_post_status(post.id, "failed")
+            await self.db.complete_agent_run(run_id, status="failed", error_message=str(e))
+            raise
+
+    async def post_thread(self, thread_tweets: list[str], style: str, topic: str) -> Post:
+        """Post a multi-tweet thread."""
+        await self.check_rate_limit("post")
+
+        run = AgentRun(agent="x", task_type="post_thread", started_at=datetime.now())
+        run_id = await self.db.log_agent_run(run)
+
+        full_content = "\n---\n".join(thread_tweets)
+        post = Post(platform="x", content=full_content, content_style="thread", topic=topic, status="draft")
+        post.id = await self.db.insert_post(post)
+
+        try:
+            success = await self.actions.compose_and_post_thread(thread_tweets)
+
+            if success:
+                await self.db.update_post_status(post.id, "posted", datetime.now())
+                post.status = "posted"
+                logger.info("Posted thread (%d tweets, topic=%s)", len(thread_tweets), topic)
+            else:
+                await self.db.update_post_status(post.id, "failed")
+                post.status = "failed"
+
+            await self.db.complete_agent_run(
+                run_id, status="success" if success else "failed", iterations=1,
+            )
+            return post
+
+        except Exception as e:
+            await self.db.update_post_status(post.id, "failed")
+            await self.db.complete_agent_run(run_id, status="failed", error_message=str(e))
+            raise
+
+    async def engage(self, target_username: str, comment_text: str, style: str, topic: str) -> Comment:
+        """Reply to a post on a target account's profile."""
         await self.check_rate_limit("comment")
-        await self.request_approval(
-            f"Reply to @{target_username}: {comment_text}", "comment"
-        )
 
         run = AgentRun(agent="x", task_type="engage", started_at=datetime.now())
         run_id = await self.db.log_agent_run(run)
 
         comment = Comment(
-            platform="x",
-            target_post_url=f"https://x.com/{target_username}",
-            target_author=target_username,
-            content=comment_text,
-            comment_style=style,
-            topic=topic,
-            status="draft",
+            platform="x", target_post_url=f"https://x.com/{target_username}",
+            target_author=target_username, content=comment_text,
+            comment_style=style, topic=topic, status="draft",
         )
         comment.id = await self.db.insert_comment(comment)
 
         try:
-            template = self._load_prompt("x_engagement.txt")
-            task_prompt = template.replace(
-                "{target_username}", target_username
-            ).replace("{comment_text}", comment_text)
+            success = await self.actions.reply_to_latest_post(target_username, comment_text)
 
-            system_prompt_base = (
-                "You are an AI assistant helping a user engage on X (Twitter). "
-                "You are controlling a web browser via mouse and keyboard actions. "
-                "Follow the instructions precisely and report any issues."
-            )
-
-            result = await self.agent_loop.run(
-                task=task_prompt,
-                system_prompt=system_prompt_base,
-                max_iterations=25,
-            )
-
-            status = "posted" if result.success else "failed"
+            status = "posted" if success else "failed"
             comment.status = status
-            if result.success:
+            if success:
                 comment.posted_at = datetime.now()
 
-            # Update comment in DB (re-insert with status since we don't have update_comment)
             await self.db.complete_agent_run(
-                run_id,
-                status="success" if result.success else "failed",
-                iterations=result.iterations,
-                api_tokens_used=result.total_input_tokens + result.total_output_tokens,
+                run_id, status="success" if success else "failed", iterations=1,
             )
-
-            logger.info(
-                "Engagement with @%s: %s (style=%s, topic=%s)",
-                target_username, status, style, topic,
-            )
+            logger.info("Engagement with @%s: %s (style=%s)", target_username, status, style)
             return comment
 
         except Exception as e:
+            await self.db.complete_agent_run(run_id, status="failed", error_message=str(e))
+            raise
+
+    async def like_and_retweet(self, target_username: str, action: str = "like") -> bool:
+        """Like and optionally retweet a post."""
+        run = AgentRun(agent="x", task_type=f"like_retweet", started_at=datetime.now())
+        run_id = await self.db.log_agent_run(run)
+
+        try:
+            liked = await self.actions.like_latest_post(target_username)
+            retweeted = False
+            if "retweet" in action and liked:
+                retweeted = await self.actions.retweet_latest_post(target_username)
+
+            success = liked
             await self.db.complete_agent_run(
-                run_id, status="failed", error_message=str(e)
+                run_id, status="success" if success else "failed", iterations=1,
             )
+            logger.info("Like/retweet @%s: %s (%s)", target_username, "success" if success else "failed", action)
+            return success
+
+        except Exception as e:
+            await self.db.complete_agent_run(run_id, status="failed", error_message=str(e))
+            raise
+
+    async def read_latest_post(self, username: str) -> str:
+        """Read the latest post text from a user's profile."""
+        return await self.actions.read_latest_post_text(username)
+
+    async def reply_to_mentions(self, max_replies: int = 3, reply_generator=None) -> int:
+        """Smart reply to mentions — filters spam, prioritizes quality."""
+        run = AgentRun(agent="x", task_type="reply_mentions", started_at=datetime.now())
+        run_id = await self.db.log_agent_run(run)
+
+        try:
+            # Get mentions with metadata
+            mentions = await self.actions.get_smart_mentions(max_count=15)
+
+            # Filter: skip empty, very short, or spammy mentions
+            quality_mentions = []
+            for m in mentions:
+                text = m.get("text", "")
+                if len(text) < 5:
+                    continue  # Too short / empty
+                if any(spam in text.lower() for spam in [
+                    "dm me", "check my bio", "free", "giveaway", "airdrop",
+                    "follow me", "follow back", "f4f", "s4s"
+                ]):
+                    continue  # Spam
+                quality_mentions.append(m)
+
+            # Sort by engagement (likes + replies) — higher quality first
+            quality_mentions.sort(key=lambda m: m.get("likes", 0) + m.get("replies", 0), reverse=True)
+
+            replied = 0
+            for mention in quality_mentions[:max_replies]:
+                if reply_generator:
+                    reply_text = await reply_generator(mention["text"])
+                else:
+                    reply_text = "Thanks for the mention! Great point."
+
+                success = await self.actions.reply_to_mention(mention["element"], reply_text)
+                if success:
+                    replied += 1
+                    logger.info("Replied to @%s (likes=%d)", mention.get("author", "?"), mention.get("likes", 0))
+
+            await self.db.complete_agent_run(run_id, status="success", iterations=1)
+            logger.info("Smart replies: %d/%d quality mentions", replied, len(quality_mentions))
+            return replied
+
+        except Exception as e:
+            await self.db.complete_agent_run(run_id, status="failed", error_message=str(e))
             raise
 
     async def scrape_own_metrics(self, own_username: str = "") -> list[dict]:
-        """Scrape engagement metrics from own recent posts via Computer Use.
-
-        Args:
-            own_username: The logged-in user's X username
-
-        Returns:
-            List of dicts with post text and engagement counts
-        """
+        """Scrape engagement metrics from own recent posts."""
         if not own_username:
             logger.warning("No username provided for metrics scraping")
             return []
@@ -188,50 +233,13 @@ class XAgent(BaseAgent):
         run_id = await self.db.log_agent_run(run)
 
         try:
-            template = self._load_prompt("x_scraping.txt")
-            task_prompt = template.replace("{own_username}", own_username)
-
-            system_prompt_base = (
-                "You are an AI assistant helping a user analyze their X (Twitter) metrics. "
-                "You are controlling a web browser via mouse and keyboard actions. "
-                "Read engagement metrics from posts and report them in JSON format."
-            )
-
-            result = await self.agent_loop.run(
-                task=task_prompt,
-                system_prompt=system_prompt_base,
-                max_iterations=15,
-            )
-
-            # Parse metrics from Claude's response
-            metrics = self._parse_metrics_response(result.final_text)
-
+            metrics = await self.actions.scrape_profile_metrics(own_username)
             await self.db.complete_agent_run(
-                run_id,
-                status="success",
-                iterations=result.iterations,
-                api_tokens_used=result.total_input_tokens + result.total_output_tokens,
+                run_id, status="success", iterations=1,
             )
-
             logger.info("Scraped metrics for %d posts", len(metrics))
             return metrics
 
         except Exception as e:
-            await self.db.complete_agent_run(
-                run_id, status="failed", error_message=str(e)
-            )
+            await self.db.complete_agent_run(run_id, status="failed", error_message=str(e))
             raise
-
-    @staticmethod
-    def _parse_metrics_response(text: str) -> list[dict]:
-        """Extract JSON metrics from Claude's text response."""
-        # Look for JSON array in the response
-        try:
-            # Find the JSON block (may be wrapped in ```json ... ```)
-            start = text.find("[")
-            end = text.rfind("]") + 1
-            if start >= 0 and end > start:
-                return json.loads(text[start:end])
-        except (json.JSONDecodeError, ValueError) as e:
-            logger.warning("Failed to parse metrics JSON: %s", e)
-        return []

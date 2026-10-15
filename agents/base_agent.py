@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 
 from config import Settings
-from core.computer_use import AgentLoop
+from core.playwright_browser import PlaywrightBrowser
 from storage.database import Database
 from storage.models import Comment, Post
 
@@ -21,19 +21,10 @@ class ApprovalDenied(Exception):
 
 
 class BaseAgent(ABC):
-    """Abstract base for all platform agents.
+    """Abstract base for all platform agents."""
 
-    Each platform agent implements posting, engagement, and metrics
-    scraping using the Computer Use agent loop.
-    """
-
-    def __init__(
-        self,
-        agent_loop: AgentLoop,
-        db: Database,
-        config: Settings,
-    ):
-        self.agent_loop = agent_loop
+    def __init__(self, browser: PlaywrightBrowser, db: Database, config: Settings):
+        self.browser = browser
         self.db = db
         self.config = config
 
@@ -46,54 +37,57 @@ class BaseAgent(ABC):
         """Comment on a target account's post."""
 
     @abstractmethod
-    async def scrape_own_metrics(self) -> list[dict]:
+    async def scrape_own_metrics(self, own_username: str = "") -> list[dict]:
         """Scrape engagement metrics from own recent posts."""
 
     @abstractmethod
     def get_platform_name(self) -> str:
-        """Return the platform identifier (e.g., 'x')."""
+        """Return the platform identifier."""
+
+    def _get_daily_post_limit(self) -> int:
+        """Get the per-platform daily post limit."""
+        platform = self.get_platform_name()
+        limits = {
+            "facebook": self.config.FACEBOOK_POSTS_PER_DAY,
+            "tiktok": self.config.TIKTOK_POSTS_PER_DAY,
+        }
+        return limits.get(platform, self.config.POSTS_PER_DAY)
 
     async def check_rate_limit(self, action: str) -> bool:
-        """Check if the action is within rate limits.
-
-        Raises RateLimitError if limit would be exceeded.
-        """
+        """Check if the action is within per-platform rate limits."""
         platform = self.get_platform_name()
-
         if action == "post":
             count = await self.db.count_posts_today(platform)
-            if count >= self.config.MAX_POSTS_PER_DAY:
+            limit = self._get_daily_post_limit()
+            if count >= limit:
                 raise RateLimitError(
-                    f"Daily post limit reached: {count}/{self.config.MAX_POSTS_PER_DAY}"
+                    f"{platform}: Daily post limit reached: {count}/{limit}"
                 )
         elif action == "comment":
             count = await self.db.count_comments_last_hour(platform)
             if count >= self.config.MAX_COMMENTS_PER_HOUR:
                 raise RateLimitError(
-                    f"Hourly comment limit reached: {count}/{self.config.MAX_COMMENTS_PER_HOUR}"
+                    f"{platform}: Hourly comment limit reached: {count}/{self.config.MAX_COMMENTS_PER_HOUR}"
                 )
         return True
 
     async def request_approval(self, content: str, action: str) -> bool:
-        """If REQUIRE_APPROVAL is enabled, pause for human review.
-
-        Returns True if approved (or approval not required).
-        Raises ApprovalDenied if rejected.
-        """
+        """If REQUIRE_APPROVAL is enabled, pause for human review."""
         if not self.config.REQUIRE_APPROVAL:
             return True
-
+        import asyncio
         print(f"\n{'='*60}")
         print(f"[APPROVAL REQUIRED] Action: {action}")
         print(f"Platform: {self.get_platform_name()}")
         print(f"Content:\n{content}")
         print(f"{'='*60}")
-
         try:
-            response = input("Approve? (y/n): ").strip().lower()
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None, lambda: input("Approve? (y/n): ").strip().lower()
+            )
         except EOFError:
             raise ApprovalDenied("No interactive terminal for approval")
-
         if response != "y":
             raise ApprovalDenied(f"Action '{action}' rejected by reviewer")
         return True

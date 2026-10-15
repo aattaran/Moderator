@@ -1,0 +1,665 @@
+"""UGC creative angle generation — ported from proven video-ad pipeline (130+ validated runs).
+
+5 angle styles × 5 concepts × 4 visual hooks = diverse UGC ad variations.
+Each angle produces 3 clips: Hook (8s) + Concept (8s) + CTA (5s) = ~21s total.
+
+Reference: ~/.claude/skills/video-ad-videographer/SKILL.md
+Reference JS: strategies/ugc-script-generator.js
+"""
+
+import json
+import logging
+import random
+import re
+
+from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
+
+# ═══════════════════════════════════════════════════════════════
+# BASE TONE — applied to every generated angle before per-style
+# flavor. This is the overarching voice directive; the style's
+# own tone field refines within this frame, it does not override it.
+# ═══════════════════════════════════════════════════════════════
+
+BASE_TONE = (
+    "Raw, unpolished, authentic. "
+    "The person sounds like they're venting to a friend or sharing a "
+    "discovery they're genuinely excited about. "
+    "Casual expertise, not a sales pitch."
+)
+
+# ═══════════════════════════════════════════════════════════════
+# ANGLE STYLES — narrative arc + tone + hook/CTA examples
+# ═══════════════════════════════════════════════════════════════
+
+ANGLE_STYLES = {
+    "relatable_rant": {
+        "name": "Relatable Rant",
+        "tone": "slightly frustrated, then genuinely impressed",
+        "arc": "Express relatable frustration with a problem, discover this product changed things, casual low-pressure share",
+        "hooks": [
+            "Stop taking {generic} if you actually want {benefit}",
+            "I cannot believe I was wasting money on {alternative} this whole time",
+            "Why did nobody tell me about this sooner",
+            "Okay so I have been dealing with {problem} for months and finally",
+        ],
+        "ctas": [
+            "Honestly just look into it yourself I think you will be surprised",
+            "I have been using it for a few weeks now and I am not going back",
+            "If you deal with {problem} too this is worth a try",
+        ],
+    },
+    "casual_review": {
+        "name": "Casual Review",
+        "tone": "matter-of-fact, conversational, telling a friend",
+        "arc": "Casually introduce product already in use, share honest experience, matter-of-fact recommendation",
+        "hooks": [
+            "So I have been testing this out for about a month now and I am genuinely impressed",
+            "Everyone keeps asking me what supplement I take so here it is",
+            "Okay honest review time I have been using this every day",
+            "Here is the exact product that fixed my {problem}",
+        ],
+        "ctas": [
+            "If you want to try it yourself the link is right there",
+            "Definitely worth checking out if you are into {category}",
+            "Let me know in the comments if you have tried this one",
+        ],
+    },
+    "ingredient_breakdown": {
+        "name": "Ingredient Breakdown",
+        "tone": "informed, slightly nerdy, genuinely surprised by the formula",
+        "arc": "Set up the research angle, break down key ingredients with genuine surprise, informed recommendation",
+        "hooks": [
+            "I spent hours researching this and what I found actually surprised me",
+            "Wait until you hear what this ingredient actually does",
+            "Most supplements hide their doses but look at this label",
+            "I did the research so you do not have to here is what is actually in this",
+        ],
+        "ctas": [
+            "If you care about what goes into your body check this one out",
+            "The formula speaks for itself honestly",
+            "Save this for when you are comparing supplements",
+        ],
+    },
+    "morning_routine": {
+        "name": "Morning Routine",
+        "tone": "calm, habitual, low-key confident",
+        "arc": "Show daily routine moment, explain why this product is non-negotiable, calm endorsement",
+        "hooks": [
+            "My morning routine is finally dialed in and this one thing made the difference",
+            "This is the one supplement I will never skip",
+            "Part of my non-negotiable morning stack",
+            "Three things I do every single morning and number one is this",
+        ],
+        "ctas": [
+            "If you want a solid morning routine add this to the list",
+            "Check it out if you are building your own wellness stack",
+            "Link is in the usual spot",
+        ],
+    },
+    "skeptic_converted": {
+        "name": "Skeptic Converted",
+        "tone": "honest, self-deprecating, then genuinely enthusiastic",
+        "arc": "Express past skepticism, reveal surprising turnaround, honest recommendation",
+        "hooks": [
+            "I honestly thought this was just another overhyped supplement",
+            "I was the biggest skeptic until I actually tried this",
+            "I rolled my eyes when someone recommended this to me but",
+            "Coming from someone who never believed in supplements",
+        ],
+        "ctas": [
+            "If you are skeptical like I was just give it a try",
+            "I was wrong and I am not afraid to admit it you need to try this",
+            "Coming from a former non-believer this one is legit",
+        ],
+    },
+}
+
+# ═══════════════════════════════════════════════════════════════
+# CONCEPTS — content format + per-clip camera/action direction
+# ═══════════════════════════════════════════════════════════════
+
+CONCEPTS = {
+    "unboxing": {
+        "name": "Unboxing",
+        "description": "Opening the package, initial reactions, first impressions",
+        "clip_direction": {
+            # All clips share one start frame (architectural). Bottle position
+            # must be stable across sections — no pickups, no setdowns, or each
+            # cut visually teleports the bottle back to its starting place.
+            "hook": {
+                "action": "holds the product at chest level, looks at camera casually",
+                "camera": "medium close-up, stationary with slight natural wobble",
+            },
+            "concept": {
+                "action": "continues holding product at chest level while speaking about it",
+                "camera": "medium close-up, stationary with slight natural wobble",
+            },
+            "cta": {
+                "action": "still holding product at chest level, addresses camera with a nod",
+                "camera": "medium close-up, stationary with slight natural wobble",
+            },
+        },
+        "props": "shipping mailer or small box, packing material",
+        "settings": ["living room couch", "desk at home", "kitchen", "bedroom"],
+    },
+    "product_demo": {
+        "name": "Product Demo",
+        "description": "Showing how the product works, reading label, explaining routine",
+        "clip_direction": {
+            "hook": {
+                "action": "holds the product at chest level, addresses camera directly",
+                "camera": "medium close-up, stationary eye-level, slight natural wobble",
+            },
+            "concept": {
+                "action": "continues holding product at chest level while talking to camera",
+                "camera": "medium close-up, stationary with slight natural wobble",
+            },
+            "cta": {
+                "action": "still holding product at chest level, addresses camera with friendly smile",
+                "camera": "medium shot, slight natural sway",
+            },
+        },
+        "props": "glass of water, the product",
+        "settings": ["kitchen", "bathroom", "desk at home", "gym"],
+    },
+    "lifestyle": {
+        "name": "Lifestyle / Aesthetic",
+        "description": "Product woven naturally into daily routine, calm and aspirational",
+        "clip_direction": {
+            "hook": {
+                "action": "holds the product at chest level, casually positioned in scene, addresses camera naturally",
+                "camera": "medium close-up, stationary with slight natural wobble",
+            },
+            "concept": {
+                "action": "continues holding product at chest level while explaining the routine",
+                "camera": "medium close-up, stationary with slight natural wobble",
+            },
+            "cta": {
+                "action": "still holding product at chest level, casual closing words",
+                "camera": "medium close-up, stationary with slight natural wobble",
+            },
+        },
+        "props": "routine context items (coffee mug, yoga mat, skincare, water bottle)",
+        "settings": ["kitchen", "bathroom", "home gym", "bedroom"],
+    },
+    "problem_solution": {
+        "name": "Problem / Solution",
+        "description": "Relatable frustration, then reveal the product as the solution",
+        "clip_direction": {
+            "hook": {
+                "action": "holds the product at chest level, speaks directly to camera with slightly frustrated expression",
+                "camera": "medium close-up, stationary with slight natural wobble",
+            },
+            "concept": {
+                "action": "continues holding product at chest level while explaining the solution",
+                "camera": "medium close-up, stationary with slight natural wobble",
+            },
+            "cta": {
+                "action": "still holding product at chest level, confident posture, direct recommendation",
+                "camera": "medium close-up, stationary with slight natural wobble",
+            },
+        },
+        "props": "the product",
+        "settings": ["car", "kitchen", "desk at home", "living room", "gym"],
+    },
+    "direct_review": {
+        "name": "Direct Review / Testimonial",
+        "description": "Straight-to-camera honest review, personal experience directly",
+        "clip_direction": {
+            "hook": {
+                "action": "looks directly at camera, holds product at chest level toward camera",
+                "camera": "medium close-up, stationary with slight natural wobble",
+            },
+            "concept": {
+                "action": "continues holding product at chest level toward camera, points at label details",
+                "camera": "medium close-up, stationary with slight natural wobble",
+            },
+            "cta": {
+                "action": "still holding product at chest level, looks directly at camera, casual genuine closing",
+                "camera": "medium close-up, stationary with slight natural wobble",
+            },
+        },
+        "props": "the product on a nearby surface",
+        "settings": ["kitchen", "desk at home", "car", "living room", "bathroom", "gym"],
+    },
+}
+
+# ═══════════════════════════════════════════════════════════════
+# VISUAL HOOKS — clip 1 attention-grabbing technique
+# ═══════════════════════════════════════════════════════════════
+
+VISUAL_HOOKS = {
+    "dynamic_movement": {
+        "name": "Dynamic Movement",
+        "hook_action": "makes a calm natural gesture or shifts position slightly while beginning to speak",
+        "camera_note": "medium close-up, stationary with slight natural wobble",
+    },
+    "product_action": {
+        "name": "Product Action",
+        # Steady-state hold (not pickup motion): start frame is reused for all clips,
+        # so any pickup animation desyncs with the next clip's start.
+        "hook_action": "already holds the product steadily toward camera at chest level while beginning to speak",
+        "camera_note": "medium close-up, stationary with slight natural wobble",
+    },
+    "facial_expression": {
+        "name": "Facial Expression",
+        "hook_action": "looks directly at camera with a genuine expression (knowing smile or impressed look) and begins speaking",
+        "camera_note": "medium close-up, stationary with slight natural wobble",
+    },
+    "pattern_interrupt": {
+        "name": "Pattern Interrupt",
+        "hook_action": "begins speaking mid-thought, looking directly at camera as if continuing a conversation",
+        "camera_note": "medium close-up, stationary with slight natural wobble",
+    },
+}
+
+# ═══════════════════════════════════════════════════════════════
+# PRODUCT KNOWLEDGE
+# ═══════════════════════════════════════════════════════════════
+
+PRODUCT_KNOWLEDGE = {
+    "blood_sugar": {
+        "product": "ELEMNT Dihydroberberine 200mg",
+        # Container description includes literal label text — Gemini renders text from prompt, not OCR.
+        # Per Gemini docs: "Be clear about the text, the font style, and the overall design."
+        "container": (
+            "dark amber glass bottle with a black ribbed cap, ~4 inches tall, "
+            "wrapped in a bright cyan-blue label. Label reads exactly: "
+            "'Elemnt' wordmark at top, 'GLUCO VANTAGE' sub-brand, "
+            "'DIHYDROBERBERINE 200 MG' main title, "
+            "'with Nerve and Cognitive Support' tagline, "
+            "'5X ABSORPTION VS. BERBERINE' callout pill, "
+            "'60 CAPSULES DIETARY SUPPLEMENT' bottom strip. "
+            "Five small round white icons run along the left edge of the label "
+            "(sugar-support, nerve, cardio, immunity, metabolism)"
+        ),
+        "key_ingredient": "dihydro-berberine with GlucoVantage",
+        "benefit": "healthy blood sugar levels",
+        "problem": "post-meal energy crashes and blood sugar spikes",
+        "fact": "five times more absorbable than regular berberine",
+        "generic": "regular berberine",
+        "alternative": "standard berberine supplements",
+        "category": "metabolic health",
+        "other_ingredients": "Ceylon Cinnamon, Curcumin, Alpha-Lipoic Acid, Lions Mane",
+    },
+    "gut_health": {
+        "product": "ELEMNT Metabolic Biome",
+        "container": "dark glass bottle with black cap, approximately 4 inches tall",
+        "key_ingredient": "Akkermansia muciniphila",
+        "benefit": "gut health and digestion",
+        "problem": "digestive issues and gut discomfort",
+        "fact": "three-in-one synbiotic with eight billion CFU that stimulates GLP-1",
+        "generic": "basic probiotics",
+        "alternative": "single-strain probiotic capsules",
+        "category": "gut health",
+        "other_ingredients": "Prebiotics, Probiotics, Postbiotics in one capsule",
+    },
+    "longevity": {
+        "product": "ELEMNT NMNH Rich+ Blend",
+        "container": "dark glass bottle with black cap, approximately 4 inches tall",
+        "key_ingredient": "NMNH at five hundred milligrams",
+        "benefit": "cellular energy and healthy aging",
+        "problem": "fatigue and feeling older than you should",
+        "fact": "NMNH boosts NAD+ levels even more effectively than NMN",
+        "generic": "NMN supplements",
+        "alternative": "standard NMN or NAD+ precursors",
+        "category": "longevity and anti-aging",
+        "other_ingredients": "Fisetin, Spermidine, Trans-Resveratrol, CoQ10",
+    },
+    "recovery": {
+        "product": "ELEMNT Molecular H2",
+        "container": "dark glass bottle with black cap, approximately 4 inches tall",
+        "key_ingredient": "molecular hydrogen at sixteen hundred PPB",
+        "benefit": "post-workout recovery and antioxidant support",
+        "problem": "slow recovery and exercise-related oxidative stress",
+        "fact": "MAX ORP negative eight hundred millivolts of antioxidant power",
+        "generic": "vitamin C for recovery",
+        "alternative": "standard antioxidant supplements",
+        "category": "athletic recovery",
+        "other_ingredients": "rapid dissolving tablet technology",
+    },
+}
+
+# ═══════════════════════════════════════════════════════════════
+# IMPERFECTION CUES — 2-3 per clip for raw UGC feel
+# ═══════════════════════════════════════════════════════════════
+
+IMPERFECTION_CUES = [
+    "messy-chic hair not perfectly styled",
+    "slight handheld camera shake and micro-jitter",
+    "amateur selfie framing slightly off-center",
+    "quick natural inhale before speaking",
+    "imperfect grip on the bottle",
+    "slight under-eye circles visible",
+    "wrinkled casual clothing",
+    "a few items cluttered in background",
+    "uneven natural lighting from one side",
+    "phone propped at slightly awkward angle",
+]
+
+# ═══════════════════════════════════════════════════════════════
+# CLIP CHOREOGRAPHY — configurable clip count and durations
+# ═══════════════════════════════════════════════════════════════
+
+# Presets for common configurations.
+# All clips share one start frame (architectural). Bottle position MUST stay
+# stable across sections — no pickups, no setdowns — or each cut visually
+# teleports the bottle back to its starting place.
+CLIP_PRESETS = {
+    3: [
+        {"section": "hook", "bottle": True, "action": "holds product steadily at chest level, looking at camera, beginning to speak", "focus": "stop the scroll"},
+        {"section": "concept", "bottle": True, "action": "continues holding product steadily at chest level while talking", "focus": "mention 1 key ingredient BY NAME and what it does"},
+        {"section": "cta", "bottle": True, "action": "still holding product at chest level, addresses camera with a casual nod and smile", "focus": "low-pressure closing"},
+    ],
+    4: [
+        {"section": "hook", "bottle": True, "action": "holds product steadily at chest level, looking at camera", "focus": "stop the scroll"},
+        {"section": "story", "bottle": True, "action": "continues holding product at chest level while talking, gestures naturally with the other hand", "focus": "personal backstory, NO product facts"},
+        {"section": "benefit", "bottle": True, "action": "continues holding product steadily at chest level while explaining", "focus": "mention 1 ingredient BY NAME and what it does"},
+        {"section": "cta", "bottle": True, "action": "still holding product at chest level, addresses camera with a casual nod and smile", "focus": "personal results + low-pressure closing"},
+    ],
+    5: [
+        {"section": "hook", "bottle": True, "action": "holds product steadily at chest level, looking at camera", "focus": "stop the scroll"},
+        {"section": "story", "bottle": True, "action": "continues holding product at chest level while talking, gestures naturally with the other hand", "focus": "personal backstory, NO product facts"},
+        {"section": "benefit", "bottle": True, "action": "continues holding product steadily at chest level while explaining", "focus": "mention 1 ingredient BY NAME and what it does"},
+        {"section": "experience", "bottle": True, "action": "still holding product, talks to camera with slight nod", "focus": "how it feels day-to-day, real results"},
+        {"section": "cta", "bottle": True, "action": "still holding product at chest level, addresses camera with a casual nod and smile", "focus": "casual recommendation"},
+    ],
+    6: [
+        {"section": "hook", "bottle": True, "action": "holds product steadily at chest level, looking at camera", "focus": "stop the scroll"},
+        {"section": "setup", "bottle": True, "action": "continues holding product at chest level while describing the problem", "focus": "introduce the problem"},
+        {"section": "benefit_1", "bottle": True, "action": "continues holding product steadily at chest level while explaining", "focus": "first key ingredient BY NAME"},
+        {"section": "benefit_2", "bottle": True, "action": "continues holding product, slight nod while explaining", "focus": "second key ingredient BY NAME"},
+        {"section": "social_proof", "bottle": True, "action": "continues holding product, talks to camera with genuine expression", "focus": "personal results"},
+        {"section": "cta", "bottle": True, "action": "still holding product at chest level, addresses camera with a casual nod and smile", "focus": "low-pressure closing"},
+    ],
+}
+
+
+def get_choreography(clip_count: int = 3) -> list[dict]:
+    """Get clip choreography for a given clip count."""
+    return CLIP_PRESETS.get(clip_count, CLIP_PRESETS[3])
+
+
+# ═══════════════════════════════════════════════════════════════
+# PYDANTIC MODELS
+# ═══════════════════════════════════════════════════════════════
+
+class ClipPrompt(BaseModel):
+    """Prompt data for a single video clip."""
+    section: str          # hook, concept, cta
+    duration: int         # 8, 8, 5
+    prompt: str           # Full Kling prompt (scene + action + camera + imperfection)
+    dialogue: str         # What the person says (for lip sync audio)
+    extension_prompt: str | None = None  # Motion-only for clips 2+ (no scene re-description)
+
+
+class VideoAngle(BaseModel):
+    """Complete video angle: 3 clips ready for Kling generation."""
+    style: str
+    style_name: str
+    concept: str
+    visual_hook: str
+    topic: str
+    product_name: str
+    setting: str
+    clips: list[ClipPrompt]
+    persona: str          # Full persona description (repeated in every clip)
+    imperfections: list[str]
+
+
+# ═══════════════════════════════════════════════════════════════
+# ANGLE GENERATION
+# ═══════════════════════════════════════════════════════════════
+
+_gemini_api_key = None
+
+def set_gemini_key(key: str):
+    global _gemini_api_key
+    _gemini_api_key = key
+
+def _get_gemini_client():
+    from google import genai
+    if _gemini_api_key:
+        return genai.Client(api_key=_gemini_api_key)
+    try:
+        from config import get_settings
+        return genai.Client(api_key=get_settings().GEMINI_API_KEY)
+    except Exception:
+        raise ValueError("GEMINI_API_KEY not set")
+
+
+async def generate_angle(
+    topic: str = "blood_sugar",
+    influencer_desc: str = "",
+    clip_count: int = 3,
+    clip_duration: int = 8,
+    actor_gender: str = "female",
+    use_placeholders: bool = False,
+    style_key: str | None = None,
+    concept_key: str | None = None,
+    visual_hook_key: str | None = None,
+    director_notes: str | None = None,
+    scene_description: str | None = None,
+) -> VideoAngle:
+    """Generate a video angle with configurable clip count and duration.
+
+    Args:
+        topic: Product topic
+        influencer_desc: Influencer visual description
+        clip_count: Number of clips (3, 4, 5, or 6)
+        clip_duration: Duration per clip in seconds (5, 8, or 10)
+        actor_gender: "male" or "female" — affects pronoun usage in prompts
+        use_placeholders: If True, use "the person"/"as shown in reference" instead
+            of describing appearance (required when using actor reference photos).
+            This prevents the LLM from inventing visual details that conflict
+            with the actual actor photos.
+    """
+    if topic == "custom":
+        product = None
+    else:
+        product = PRODUCT_KNOWLEDGE.get(topic, PRODUCT_KNOWLEDGE["blood_sugar"])
+
+    if style_key and style_key != "random":
+        if style_key not in ANGLE_STYLES:
+            raise ValueError(f"unknown style_key: {style_key}")
+        style_key_resolved = style_key
+    else:
+        style_key_resolved = random.choice(list(ANGLE_STYLES.keys()))
+    style = ANGLE_STYLES[style_key_resolved]
+
+    if concept_key and concept_key != "random":
+        if concept_key not in CONCEPTS:
+            raise ValueError(f"unknown concept_key: {concept_key}")
+        concept_key_resolved = concept_key
+    else:
+        concept_key_resolved = random.choice(list(CONCEPTS.keys()))
+    concept = CONCEPTS[concept_key_resolved]
+
+    if visual_hook_key and visual_hook_key != "random":
+        if visual_hook_key not in VISUAL_HOOKS:
+            raise ValueError(f"unknown visual_hook_key: {visual_hook_key}")
+        hook_key_resolved = visual_hook_key
+    else:
+        hook_key_resolved = random.choice(list(VISUAL_HOOKS.keys()))
+    hook = VISUAL_HOOKS[hook_key_resolved]
+
+    if scene_description and scene_description.strip():
+        setting = scene_description.strip()
+    else:
+        setting = random.choice(concept["settings"])
+    imperfections = random.sample(IMPERFECTION_CUES, 3)
+
+    choreography = get_choreography(clip_count)
+    total_duration = clip_duration * clip_count
+    words_per_clip = f"{clip_duration * 2}-{int(clip_duration * 2.5)}"
+
+    # Fill placeholders in hook/CTA examples
+    hook_example = random.choice(style["hooks"])
+    cta_example = random.choice(style["ctas"])
+    if product is not None:
+        for k, v in product.items():
+            hook_example = hook_example.replace(f"{{{k}}}", str(v))
+            cta_example = cta_example.replace(f"{{{k}}}", str(v))
+    else:
+        # Custom product: strip {placeholder} tokens from hook/CTA templates
+        hook_example = re.sub(r"\{[^}]+\}", "...", hook_example)
+        cta_example = re.sub(r"\{[^}]+\}", "...", cta_example)
+
+    # Build clip instructions dynamically
+    clip_instructions = []
+    for i, choreo in enumerate(choreography):
+        section = choreo["section"]
+        # Map section to concept clip_direction key
+        direction_key = "hook" if i == 0 else ("cta" if i == len(choreography) - 1 else "concept")
+        direction = concept["clip_direction"].get(direction_key, concept["clip_direction"]["concept"])
+
+        clip_instructions.append(
+            f"CLIP {i + 1} — {section.upper()} ({clip_duration} seconds):\n"
+            f"- Action: {direction['action']}\n"
+            f"- Camera: {direction['camera']}\n"
+            f"- {'Product on surface nearby, NOT in hands' if not choreo['bottle'] else 'Product held at chest level'}\n"
+            f"- Focus: {choreo['focus']}\n"
+            f"- Dialogue: {words_per_clip} words"
+        )
+
+    clips_text = "\n\n".join(clip_instructions)
+
+    # Build JSON schema dynamically
+    schema_clips = []
+    for i, choreo in enumerate(choreography):
+        ext = "null" if i == 0 else '"motion-only continuation"'
+        schema_clips.append(
+            f'{{"section": "{choreo["section"]}", "duration": {clip_duration}, '
+            f'"prompt": "...", "dialogue": "...", "extension_prompt": {ext}}}'
+        )
+    schema = "[\n    " + ",\n    ".join(schema_clips) + "\n  ]"
+
+    # Gender-aware pronouns
+    pronoun = "she" if actor_gender == "female" else "he"
+    subject = "the woman" if actor_gender == "female" else "the man"
+
+    # When using actor reference photos: placeholders only, no appearance descriptions
+    if use_placeholders:
+        person_line = f"PERSON: {subject} (as shown in reference photos — do NOT describe appearance)"
+        person_rules = (
+            f"- NEVER describe the person's appearance (hair, skin, body, clothing) — reference photos define identity\n"
+            f"- Use \"{subject}\" or \"the person\" as subject — NO appearance adjectives\n"
+            f"- Use \"as shown in reference\" for wardrobe and setting details\n"
+            f"- Prompts describe ACTIONS and EXPRESSIONS only, not what the person looks like"
+        )
+    else:
+        person_line = f"PERSON: {influencer_desc or 'a casual person in their late 20s wearing everyday clothes'}"
+        person_rules = "- Include the person's appearance in EVERY clip prompt (identical across all clips)"
+
+    if product is not None:
+        product_section = (
+            f"PRODUCT: {product['product']}\n"
+            f"CONTAINER: {product['container']}\n"
+            f"KEY INGREDIENT: {product['key_ingredient']}\n"
+            f"BENEFIT: {product['benefit']}\n"
+            f"PROBLEM: {product['problem']}\n"
+            f"KEY FACT: {product['fact']}\n"
+            f"OTHER INGREDIENTS: {product['other_ingredients']}"
+        )
+    else:
+        product_section = (
+            "PRODUCT: (custom — all details in DIRECTOR NOTES below)\n"
+            "NOTE: Use the DIRECTOR NOTES section for product name, container, "
+            "key ingredient, benefit, problem addressed, and key facts. "
+            "Do not invent product details."
+        )
+
+    prompt = f"""You are a UGC ad director. Generate a {clip_count}-clip talking-head supplement video ({total_duration}s total).
+
+OVERARCHING VOICE (governs all dialogue — every line must fit this):
+{BASE_TONE}
+
+{product_section}
+
+STYLE: {style['name']} — {style['arc']}
+STYLE FLAVOR: {style['tone']} (secondary — must serve the overarching voice above, not contradict it)
+HOOK EXAMPLE (loose inspiration — rewrite in the overarching voice, do NOT copy verbatim): "{hook_example}"
+CTA EXAMPLE (loose inspiration — rewrite in the overarching voice, do NOT copy verbatim): "{cta_example}"
+
+CONCEPT: {concept['name']} — {concept['description']}
+VISUAL HOOK (clip 1): {hook['name']} — {hook['hook_action']}
+SETTING: {setting}
+{person_line}
+IMPERFECTION CUES: {', '.join(imperfections)}
+
+Generate {clip_count} clips, each {clip_duration} seconds:
+
+{clips_text}
+
+RULES:
+- Each clip's "prompt" is a Kling video prompt: describe subject, action, scene, camera, lighting
+- "dialogue" is the spoken text ONLY (for lip sync audio generation) — do NOT include dialogue in "prompt"
+{person_rules}
+- NEVER use negative instructions ("no phone", "don't show") — describe what IS there
+- NEVER say "cures", "treats", "prevents" — use "supports", "helps with", "I noticed"
+- Include physical dimensions of the bottle when product is held
+- Include 1-2 imperfection cues per clip prompt
+- Camera: always "stationary with slight natural wobble" — no cinematic moves
+- "extension_prompt" for clips 2+: MOTION ONLY — use pronouns ({pronoun}/{subject}), describe ONLY new action
+- BANNED phrases: "game-changer", "life-changing", "must-have"
+- Dialogue: casual spoken language, contractions OK, {words_per_clip} words per clip
+- Setting MUST be IDENTICAL across all clips
+- Objects maintain consistent shape throughout — bottle does not morph or change
+
+Output ONLY valid JSON:
+{{
+  "persona": "{'the person as shown in reference photos' if use_placeholders else 'full description of person + outfit (identical all clips)'}",
+  "clips": {schema}
+}}"""
+
+    if director_notes and director_notes.strip():
+        prompt = f"{prompt}\n\nDIRECTOR NOTES:\n{director_notes.strip()}"
+
+    client = _get_gemini_client()
+    import asyncio as _asyncio
+    response = await _asyncio.to_thread(client.models.generate_content, model="gemini-2.5-flash", contents=prompt)
+
+    text = ""
+    for part in response.candidates[0].content.parts:
+        if part.text:
+            text = part.text.strip()
+            break
+
+    if "```json" in text:
+        text = text.split("```json")[1].split("```")[0].strip()
+    elif "```" in text:
+        text = text.split("```")[1].split("```")[0].strip()
+
+    data = json.loads(text)
+
+    clips = [
+        ClipPrompt(
+            section=c["section"],
+            duration=c["duration"],
+            prompt=c["prompt"],
+            dialogue=c["dialogue"],
+            extension_prompt=c.get("extension_prompt"),
+        )
+        for c in data["clips"]
+    ]
+
+    angle = VideoAngle(
+        style=style_key_resolved,
+        style_name=style["name"],
+        concept=concept_key_resolved,
+        visual_hook=hook_key_resolved,
+        topic=topic,
+        product_name=product["product"] if product is not None else "custom product",
+        setting=setting,
+        clips=clips,
+        persona=data.get("persona", influencer_desc or "casual person in late 20s"),
+        imperfections=imperfections,
+    )
+
+    logger.info(
+        "Angle: style=%s, concept=%s, hook=%s, %d clips",
+        style_key_resolved, concept_key_resolved, hook_key_resolved, len(clips),
+    )
+    return angle

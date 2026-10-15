@@ -1,0 +1,8 @@
+browser-profile/
+data/
+__pycache__/
+*.pyc
+.env
+.git/
+scripts/
+tests/

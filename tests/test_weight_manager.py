@@ -63,7 +63,7 @@ async def test_select_fallback_on_empty_db(db):
     wm = WeightManager(db, config)
 
     choice = await wm.select("content_style")
-    assert choice in ["hot_take", "thread", "question", "insight", "meme_caption"]
+    assert choice in ["build_update", "lesson_learned", "hot_take", "thread", "question", "insight", "meme_caption"]
 
 
 @pytest.mark.asyncio

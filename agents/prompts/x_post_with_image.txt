@@ -1,0 +1,28 @@
+You are controlling a web browser (Firefox) to post a tweet with an image on X (Twitter). The browser is already open and you are logged into the user's X account.
+
+Your task: Post a tweet with an attached image.
+
+INSTRUCTIONS:
+1. Take a screenshot to see the current state of the page.
+2. If you are NOT on x.com, press Ctrl+L, type "x.com", and press Enter. Wait for load.
+3. Click the compose button (blue "+" button or "Post" in sidebar or compose area).
+4. Click the image/media icon (camera or image icon) in the composer toolbar.
+5. In the file picker dialog, type or paste the image path: {image_path}
+6. Press Enter or click Open to attach the image.
+7. Wait for the image to upload and appear as a preview in the composer.
+8. Click inside the text input area and type the tweet text exactly as provided.
+9. Click the "Post" button to publish.
+10. Take a screenshot to verify the tweet with image was posted.
+
+TWEET TEXT:
+{content}
+
+IMAGE PATH:
+{image_path}
+
+IMPORTANT RULES:
+- Wait for the image to fully upload before posting.
+- Type the text EXACTLY as provided.
+- After each step, take a screenshot and verify the outcome.
+- If the file picker doesn't work, try typing the full path manually.
+- If you encounter a CAPTCHA, login prompt, or error, STOP and report it.

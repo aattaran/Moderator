@@ -8,3 +8,21 @@ browser-profile/
 *.egg-info/
 dist/
 build/
+
+# Paused Chrome profile — holds live X.com session cookies. Never commit.
+browser-profile.PAUSED-X/
+
+# Large binary reference assets: actor/scene photos, PSDs, sample videos (~5.8 GB).
+# Source lives elsewhere in strategies/; only the asset tree is excluded.
+strategies/references/
+
+# Generated output and tool caches
+graphify-out/
+.playwright-mcp/
+.jarvis/
+
+# Nested git repo — track separately, not as a broken gitlink
+freebies/
+
+# Editor MCP config — contains a live DigitalOcean access token
+.vscode/
