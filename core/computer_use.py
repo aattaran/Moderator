@@ -123,7 +123,9 @@ class ActionExecutor:
 
     async def _key_press(self, inp: dict) -> ToolResult:
         """Press a key or key combination."""
-        key = inp.get("key", "")
+        key = inp.get("key", "").strip()
+        if not key:
+            return ToolResult(error="No key specified")
         # Map common Claude key names to xdotool names
         key_map = {
             "Return": "Return", "Enter": "Return",
@@ -139,7 +141,10 @@ class ActionExecutor:
         mapped = []
         for part in parts:
             stripped = part.strip()
-            mapped.append(key_map.get(stripped, stripped))
+            if stripped:
+                mapped.append(key_map.get(stripped, stripped))
+        if not mapped:
+            return ToolResult(error="No valid key specified")
         xdo_key = "+".join(mapped)
 
         await self._run_shell(f"xdotool key -- {xdo_key}")
@@ -227,7 +232,11 @@ class ActionExecutor:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=15)
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+        except asyncio.TimeoutError:
+            proc.kill()
+            raise RuntimeError(f"Command timed out (30s): {cmd}")
         if proc.returncode != 0:
             error_msg = stderr.decode().strip() if stderr else f"Exit code {proc.returncode}"
             raise RuntimeError(f"Command failed: {cmd}\n{error_msg}")
